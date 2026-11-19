@@ -1,5 +1,5 @@
 context:
-  version: "3.7"
+  version: "3.8.1"
 
 package:
   name: ocaml-sedlex
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/ocaml-community/sedlex/archive/refs/tags/v${{ version }}.tar.gz
-  sha256: edb489710f5f937e69c7c11bb165fca91595d35059990c877c79f292b3e00851
+  sha256: 3ab7802ca824412c995428167025325a0c34da78e5fe9e89ffe03360750f2f8f
 
 build:
   number: 0
