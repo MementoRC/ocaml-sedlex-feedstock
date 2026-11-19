@@ -1,5 +1,10 @@
 context:
   version: "3.7"
+  build_number: 1
+
+  # ocaml_win-64 ships gcc_* and vs_* at the same version/build; name the track.
+  c_toolchain: ${{ "" if unix else c_compiler ~ "_*" }}
+  library: ${{ "Library/" if not unix else "" }}
 
 package:
   name: ocaml-sedlex
@@ -10,33 +15,76 @@ source:
   sha256: edb489710f5f937e69c7c11bb165fca91595d35059990c877c79f292b3e00851
 
 build:
-  number: 0
-  skip:
-    - win
+  number: ${{ build_number }}
+  string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
   script:
-    - dune build --profile=release -p sedlex @install
-    - dune install --prefix="${PREFIX}" --libdir="${PREFIX}/lib/ocaml" sedlex
+    - if: unix
+      then:
+        - dune build --profile=release -p sedlex @install
+        - dune install --prefix="${PREFIX}" --libdir="${PREFIX}/lib/ocaml" sedlex
+      else:
+        # Plain cmd.exe, not MSYS2 bash: pure OCaml, no stubs, so no wrapper is
+        # needed and the backslashed install prefix reaches dune intact. The
+        # dune cache trips over mixed path separators on windows.
+        # dune install also opens the shared cache; disable it for every dune call
+        - set DUNE_CACHE=disabled
+        - dune build --cache=disabled --profile=release -p sedlex @install
+        - if errorlevel 1 exit 1
+        - dune install --prefix="%LIBRARY_PREFIX%" --libdir="%LIBRARY_PREFIX%\lib\ocaml" sedlex
+        - if errorlevel 1 exit 1
 
 requirements:
   build:
-    - ${{ stdlib("c") }}
     - ${{ compiler("ocaml") }}
+    - if: not unix and c_compiler == "gcc"
+      then:
+        - ${{ stdlib("m2w64_c") }}
+      else:
+        - ${{ stdlib("c") }}
+    # ocaml_win-64 >=14 only run-constrains the C compiler; activate it here, once (vs, zig)
+    - if: not unix and c_compiler != "gcc"
+      then:
+        - ${{ compiler("zig") if c_compiler == "zig" else compiler("c") }}
+    # compiler("ocaml") renders no toolchain track; name it on windows
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
+    # the cross compiler does not pull the native one; the build runs OCaml on the build machine
+    - if: build_platform != target_platform and unix
+      then:
+        - ocaml_${{ build_platform }} ${{ ocaml_compiler_version }}.*
+        # the cross compiler activates itself (shims, OCAMLLIB, host OCAMLPATH)
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.*
+    # windows cross: the self-contained gcc track needs no vcvars
+    - if: build_platform != target_platform and not unix
+      then:
+        - ocaml_${{ build_platform }} ${{ ocaml_compiler_version }}.* gcc_*
     - ocaml-dune >=3.0
   host:
+    # library: ocaml's run_export pins the compiler patch version
     - ocaml ${{ ocaml_compiler_version }}.*
+    # the noarch ocaml metapackage does not pin the windows toolchain track
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
     - ocaml-ppxlib >=0.26.0
     - ocaml-gen
   run:
     # sedlex's META requires gen, and sedlex.ppx requires ppxlib.
     - ocaml-ppxlib >=0.26.0
     - ocaml-gen
+  # the ocaml run_export does not encode the windows toolchain track
+  run_constraints:
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
 
 tests:
   - package_contents:
       strict: true
       files:
-        - lib/ocaml/sedlex/**
-        - doc/sedlex/**
+        - ${{ library }}lib/ocaml/sedlex/**
+        - ${{ library }}doc/sedlex/**
 
 about:
   homepage: https://github.com/ocaml-community/sedlex
